@@ -1,0 +1,68 @@
+# -----------------------------------------------------------------------------
+# docker-compose.yml — brings up the whole stack with one command:
+#
+#     docker compose up --build
+#
+# Services:
+#   mongo     - local MongoDB (replaces the need for a MongoDB Atlas account
+#               during development; swap MONGO_URI back to an Atlas string
+#               for production).
+#   backend   - the Express API, depends on mongo being reachable.
+#   frontend  - the Vite dev server with hot reload.
+#
+# Backend-only secrets (JWT signing keys, optional Gemini key) still come
+# from backend/.env via env_file, since those shouldn't be hardcoded here.
+# Everything Mongo/networking-related is set directly below so the services
+# can always find each other by their compose service name.
+# -----------------------------------------------------------------------------
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: crisisgrid-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build: ./backend
+    container_name: crisisgrid-backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    env_file:
+      - ./backend/.env
+    environment:
+      # Overrides whatever is in backend/.env so the container always talks
+      # to the "mongo" service by its Docker network name, not localhost.
+      MONGO_URI: mongodb://mongo:27017/crisisgrid
+      CLIENT_URL: http://localhost:5173
+      PORT: 5000
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount source for live-reload-on-restart during development, while
+      # keeping the container's own node_modules (avoids host/OS mismatch
+      # issues with native npm packages like bcrypt-family libraries).
+      - ./backend/src:/app/src
+      - /app/node_modules
+
+  frontend:
+    build: ./frontend
+    container_name: crisisgrid-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://localhost:5000/api
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - /app/node_modules
+
+volumes:
+  mongo_data:
